@@ -16,6 +16,8 @@ import {
   getStats,
 } from "@/lib/content";
 
+export const revalidate = 15;
+
 const STATS = [
   { key: "articles", label: "Articles", icon: FileText },
   { key: "notes", label: "Notes", icon: StickyNote },

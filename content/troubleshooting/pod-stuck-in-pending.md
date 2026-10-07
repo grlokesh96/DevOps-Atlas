@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting: Pod Stuck in Pending"
-description: "Problem → diagnosis → solution runbook for Kubernetes pods stuck in Pending state."
+description: "Structured runbook for diagnosing Kubernetes pods that never leave Pending state."
 type: "troubleshooting"
 category: "Kubernetes"
 tags:
@@ -17,17 +17,23 @@ date: "2026-08-08"
 
 ## Problem
 
-A pod stays `Pending` for minutes or hours. `kubectl get pods` shows `0/1`, no restarts, container never starts.
+A pod stays `Pending` for minutes or hours. `kubectl get pods` shows `0/1`, no restarts, and the container never starts.
 
-## Diagnosis
+## Symptoms
 
-### 1. Read the scheduler message
+- `kubectl get pod <pod> -n <ns>` shows status `Pending` with `0/1` ready
+- `kubectl describe pod` events end with scheduling messages such as `Insufficient cpu` or `0/3 nodes are available`
+- No container logs exist (`kubectl logs` returns `NotFound` or empty)
+- The ReplicaSet or Deployment never reaches its desired ready count
+- Related PVC may also show `Pending`
+
+## How to Diagnose
+
+### 1. Read the scheduler events
 
 ```bash
 kubectl describe pod <pod> -n <ns> | sed -n '/Events/,$p'
 ```
-
-Typical messages:
 
 | Message | Meaning |
 | --- | --- |
@@ -60,9 +66,35 @@ kubectl get pvc -n <ns>
 kubectl describe pvc <name> -n <ns>
 ```
 
-A `Pending` PVC (e.g. `volumezone` conflict) keeps its pod `Pending` too.
+A `Pending` PVC (for example a `volumezone` conflict) keeps its pod `Pending` too.
 
-## Solutions
+## Commands
+
+```bash
+# where is it stuck, in one shot
+kubectl get pod <pod> -n <ns> -o wide
+kubectl describe pod <pod> -n <ns> | tail -20
+
+# capacity vs requests cluster-wide
+kubectl top nodes
+kubectl describe nodes | grep -E "Name:|Allocated resources" -A4
+
+# watch until scheduled
+kubectl get pod <pod> -n <ns> --watch
+```
+
+## Possible Causes
+
+| Cause | How to confirm |
+| --- | --- |
+| Insufficient CPU/memory requests | Scheduler event says `Insufficient cpu/memory` |
+| Node taints without toleration | Events mention taints; node has `TAINTS` |
+| Node selector / affinity too strict | No node matches the labels in the pod spec |
+| PVC Pending or zone mismatch | `kubectl get pvc` shows `Pending` |
+| ResourceQuota exhausted | `kubectl describe resourcequota -n <ns>` shows `Used >= Hard` |
+| Too many pods per node | Scheduler event `didn't exceed pod's node affinity` / `MaxPod` |
+
+## Solution
 
 ### Capacity shortage
 
@@ -103,12 +135,13 @@ Fix the StorageClass `volumeBindingMode` or delete/recreate the PVC on a valid n
 - Use `topologySpreadConstraints` instead of hard anti-affinity everywhere
 - Alert on `kube_pod_status_unscheduled` > 5 minutes
 - Keep 15–20% allocatable headroom per node pool
+- Pair `WaitForFirstConsumer` StorageClasses with spread across AZs
 
 ## Verification
 
 ```bash
 kubectl get pod <pod> -n <ns> --watch
-kubectl describe pod <pod> -n <ns> | tail -5   # Running, events clean
+kubectl describe pod <pod> -n <ns> | tail -5
 ```
 
-Pod moves to `Running` and the events section shows `Successfully assigned` with no warnings.
+The pod moves to `Running` and events show `Successfully assigned` with no warnings.

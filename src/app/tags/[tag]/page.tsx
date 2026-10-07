@@ -7,7 +7,7 @@ export function generateStaticParams() {
   return getTagCounts().map(([tag]) => ({ tag: slugify(tag) }));
 }
 
-export const dynamicParams = false;
+export const revalidate = 15;
 
 function findTag(param: string): string | undefined {
   return getTagCounts().find(([tag]) => slugify(tag) === param)?.[0];

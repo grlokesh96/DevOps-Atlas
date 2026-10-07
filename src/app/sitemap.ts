@@ -8,6 +8,8 @@ import {
   slugify,
 } from "@/lib/content";
 
+export const revalidate = 3600;
+
 const SITE_URL = process.env.SITE_URL || "https://devops-atlas.vercel.app";
 
 export default function sitemap(): MetadataRoute.Sitemap {

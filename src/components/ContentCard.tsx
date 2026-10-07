@@ -2,20 +2,10 @@ import Link from "next/link";
 import { Clock, CalendarDays } from "lucide-react";
 import Tag from "./Tag";
 import TypeBadge from "./TypeBadge";
-import { slugify, TYPE_META } from "@/lib/content";
+import { formatDate, slugify, TYPE_META } from "@/lib/meta";
 import type { ContentMeta } from "@/lib/types";
 
-export function formatDate(date: string): string {
-  if (!date) return "";
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
+export { formatDate };
 
 export default function ContentCard({ item }: { item: ContentMeta }) {
   return (

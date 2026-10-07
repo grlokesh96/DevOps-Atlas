@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Hash } from "lucide-react";
 import { getTagCounts, slugify } from "@/lib/content";
 
+export const revalidate = 15;
+
 export const metadata: Metadata = {
   title: "Tags",
   description: "Every tag used across DevOps-Atlas content — browse related articles, notes and labs by tag.",

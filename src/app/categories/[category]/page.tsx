@@ -6,6 +6,7 @@ import {
   CATEGORIES,
   TYPE_META,
   CONTENT_TYPES,
+  getAllContent,
   getContentByCategory,
   paginate,
   slugify,
@@ -17,10 +18,12 @@ export function generateStaticParams() {
   return CATEGORIES.map((category) => ({ category: slugify(category) }));
 }
 
-export const dynamicParams = false;
+export const revalidate = 15;
 
 function findCategory(param: string): string | undefined {
-  return CATEGORIES.find((category) => slugify(category) === param);
+  const known = CATEGORIES.find((category) => slugify(category) === param);
+  if (known) return known;
+  return getAllContent().find((item) => slugify(item.category) === param)?.category;
 }
 
 export async function generateMetadata({

@@ -34,8 +34,11 @@ export default function Footer() {
             <p className="mt-3 font-mono text-sm text-cyan-400">Navigate. Learn. Build. Operate.</p>
           </div>
         </div>
-        <div className="mt-8 border-t border-slate-800 pt-6 text-xs text-slate-500">
-          © {new Date().getFullYear()} DevOps-Atlas. Built with Next.js, TypeScript &amp; Tailwind CSS.
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-6 text-xs text-slate-500">
+          <p>© {new Date().getFullYear()} DevOps-Atlas. Built with Next.js, TypeScript &amp; Tailwind CSS.</p>
+          <Link href="/admin" className="font-medium text-slate-400 hover:text-cyan-300">
+            Admin
+          </Link>
         </div>
       </div>
     </footer>

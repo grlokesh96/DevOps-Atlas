@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { TYPE_META, CONTENT_TYPES, getStats } from "@/lib/content";
 
+export const revalidate = 15;
+
 export const metadata: Metadata = {
   title: "About",
   description:

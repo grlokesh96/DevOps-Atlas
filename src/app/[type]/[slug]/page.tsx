@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock, Signal } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock, PenLine, Signal } from "lucide-react";
 import ContentCard from "@/components/ContentCard";
-import DownloadButton from "@/components/DownloadButton";
+import DownloadMenu from "@/components/DownloadMenu";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import ShareButton from "@/components/ShareButton";
 import TableOfContents from "@/components/TableOfContents";
 import Tag from "@/components/Tag";
 import TypeBadge from "@/components/TypeBadge";
@@ -19,6 +20,8 @@ import {
   slugify,
 } from "@/lib/content";
 
+export const revalidate = 15;
+
 export function generateStaticParams() {
   const params: { type: string; slug: string }[] = [];
   for (const type of CONTENT_TYPES) {
@@ -29,7 +32,7 @@ export function generateStaticParams() {
   return params;
 }
 
-export const dynamicParams = false;
+const DOWNLOADABLE = new Set(["article", "blog", "note", "post"]);
 
 export async function generateMetadata({
   params,
@@ -39,7 +42,7 @@ export async function generateMetadata({
   const { type: route, slug } = await params;
   const type = resolveType(route);
   const item = type ? getContentItem(type, slug) : undefined;
-  if (!item) return { title: "Content not found" };
+  if (!item || !item.published) return { title: "Content not found" };
 
   return {
     title: item.title,
@@ -52,6 +55,7 @@ export async function generateMetadata({
       url: item.route,
       type: "article",
       publishedTime: item.date,
+      authors: [item.author],
       tags: item.tags,
     },
   };
@@ -67,18 +71,21 @@ export default async function ContentDetailPage({
   if (!type) notFound();
 
   const item = getContentItem(type, slug);
-  if (!item) notFound();
+  if (!item || !item.published) notFound();
 
   const related = getRelated(item, 3);
   const meta = TYPE_META[item.type];
+
+  const siblings = getContentByType(item.type);
+  const index = siblings.findIndex((i) => i.slug === item.slug);
+  const previous = index >= 0 && index < siblings.length - 1 ? siblings[index + 1] : null;
+  const next = index > 0 ? siblings[index - 1] : null;
 
   if (!item.body.trim()) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-20 text-center">
         <h1 className="text-2xl font-bold text-white">Content unavailable</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          This item exists but has no content yet.
-        </p>
+        <p className="mt-2 text-sm text-slate-400">This item exists but has no content yet.</p>
         <Link
           href={`/${route}`}
           className="mt-6 inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-cyan-600 hover:text-cyan-300"
@@ -133,6 +140,10 @@ export default async function ContentDetailPage({
         <p className="mt-3 max-w-3xl text-base leading-7 text-slate-400">{item.description}</p>
 
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <PenLine size={13} aria-hidden="true" />
+            {item.author}
+          </span>
           <time dateTime={item.date} className="inline-flex items-center gap-1.5">
             <CalendarDays size={13} aria-hidden="true" />
             {formatDate(item.date)}
@@ -141,7 +152,12 @@ export default async function ContentDetailPage({
             <Clock size={13} aria-hidden="true" />
             {item.readingTime} min read
           </span>
-          <DownloadButton filename={item.slug} content={item.body} />
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <ShareButton title={item.title} route={item.route} />
+            {DOWNLOADABLE.has(item.type) && (
+              <DownloadMenu item={item} body={item.body} html={item.html} />
+            )}
+          </span>
         </div>
 
         {item.tags.length > 0 && (
@@ -150,6 +166,16 @@ export default async function ContentDetailPage({
               <Tag key={tag} tag={tag} />
             ))}
           </div>
+        )}
+
+        {item.cover && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.cover}
+            alt={`Cover image for ${item.title}`}
+            loading="lazy"
+            className="mt-6 max-h-96 w-full rounded-xl border border-slate-800 object-cover"
+          />
         )}
       </header>
 
@@ -168,6 +194,42 @@ export default async function ContentDetailPage({
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-6 sm:px-7 sm:py-8">
             <MarkdownRenderer html={item.html} />
           </div>
+
+          {/* Previous / Next */}
+          {(previous || next) && (
+            <nav aria-label="Previous and next content" className="mt-10 grid gap-3 sm:grid-cols-2">
+              {previous ? (
+                <Link
+                  href={previous.route}
+                  className="group rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition-colors hover:border-cyan-700/60"
+                >
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                    <ArrowLeft size={12} aria-hidden="true" />
+                    Previous {TYPE_META[previous.type].singular}
+                  </span>
+                  <span className="mt-1 block truncate text-sm font-medium text-slate-200 group-hover:text-cyan-300">
+                    {previous.title}
+                  </span>
+                </Link>
+              ) : (
+                <span />
+              )}
+              {next && (
+                <Link
+                  href={next.route}
+                  className="group rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-right transition-colors hover:border-cyan-700/60"
+                >
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                    Next {TYPE_META[next.type].singular}
+                    <ArrowRight size={12} aria-hidden="true" />
+                  </span>
+                  <span className="mt-1 block truncate text-sm font-medium text-slate-200 group-hover:text-cyan-300">
+                    {next.title}
+                  </span>
+                </Link>
+              )}
+            </nav>
+          )}
 
           {related.length > 0 && (
             <section aria-labelledby="related-heading" className="mt-12">

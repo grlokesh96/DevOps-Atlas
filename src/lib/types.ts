@@ -24,6 +24,8 @@ export interface ContentMeta {
   difficulty: string;
   published: boolean;
   featured: boolean;
+  author: string;
+  cover: string;
   date: string;
   readingTime: number;
   route: string;
@@ -45,4 +47,29 @@ export interface SearchEntry {
   category: string;
   tags: string[];
   text: string;
+}
+
+export interface UploadMeta {
+  name: string;
+  originalName: string;
+  kind: "txt" | "pdf";
+  size: number;
+  title: string;
+  preview: string;
+  uploadedAt: string;
+}
+
+export interface ContentFormInput {
+  type: ContentType;
+  title: string;
+  description: string;
+  category: string;
+  tags: string[];
+  author: string;
+  cover: string;
+  body: string;
+  status: "draft" | "published";
+  date: string;
+  difficulty?: string;
+  slug?: string;
 }

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import CategoryCard from "@/components/CategoryCard";
 import { CATEGORIES, getCategoryCounts, getAllContent } from "@/lib/content";
 
+export const revalidate = 15;
+
 export const metadata: Metadata = {
   title: "Categories",
   description:

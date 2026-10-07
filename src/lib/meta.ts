@@ -86,3 +86,15 @@ export function slugify(value: string): string {
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+export function formatDate(date: string): string {
+  if (!date) return "";
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
