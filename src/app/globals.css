@@ -1,0 +1,220 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background-color: #070b14;
+  color: #cbd5e1;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.3);
+}
+
+:focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 2px;
+}
+
+/* ---------- Markdown body ---------- */
+
+.markdown-body {
+  @apply text-[15px] leading-7 text-slate-300;
+}
+
+.markdown-body > * + * {
+  @apply mt-5;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  @apply scroll-mt-24 font-semibold tracking-tight text-slate-100;
+}
+
+.markdown-body h1 {
+  @apply mt-10 text-3xl;
+}
+.markdown-body h2 {
+  @apply mt-10 border-b border-slate-800 pb-2 text-2xl;
+}
+.markdown-body h3 {
+  @apply mt-8 text-xl;
+}
+.markdown-body h4 {
+  @apply mt-6 text-lg;
+}
+
+.markdown-body p {
+  @apply text-slate-300;
+}
+
+.markdown-body a {
+  @apply text-cyan-400 underline decoration-cyan-400/40 underline-offset-2 hover:decoration-cyan-400;
+}
+
+.markdown-body strong {
+  @apply font-semibold text-slate-200;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  @apply pl-6;
+}
+
+.markdown-body ul {
+  @apply list-disc;
+}
+.markdown-body ol {
+  @apply list-decimal;
+}
+
+.markdown-body li {
+  @apply mt-1.5;
+}
+.markdown-body li > p {
+  @apply mt-1.5;
+}
+
+.markdown-body blockquote {
+  @apply border-l-2 border-cyan-500/60 bg-slate-900/60 px-4 py-3 text-slate-300 italic;
+}
+
+.markdown-body hr {
+  @apply border-slate-800;
+}
+
+.markdown-body img {
+  @apply my-6 max-w-full rounded-lg border border-slate-800;
+}
+
+.markdown-body table {
+  @apply block w-full overflow-x-auto border-collapse text-sm;
+}
+
+.markdown-body th,
+.markdown-body td {
+  @apply border border-slate-800 px-3 py-2 text-left;
+}
+
+.markdown-body th {
+  @apply bg-slate-900 font-semibold text-slate-200;
+}
+
+.markdown-body tr:nth-child(even) td {
+  @apply bg-slate-900/40;
+}
+
+.markdown-body :not(pre) > code {
+  @apply rounded border border-slate-700/80 bg-slate-900 px-1.5 py-0.5 font-mono text-[0.85em] text-cyan-300;
+}
+
+.markdown-body pre,
+pre.code-block {
+  @apply relative my-6 overflow-x-auto rounded-lg border border-slate-800 bg-[#0d1117] p-4 text-sm;
+}
+
+.markdown-body pre code,
+pre.code-block code {
+  @apply block min-w-0 bg-transparent p-0 text-[13px] leading-6;
+}
+
+/* ---------- Code highlighting (github-dark adapted) ---------- */
+
+.hljs {
+  color: #e6edf3;
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-template-tag {
+  color: #ff7b72;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: #a5d6ff;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-meta,
+.hljs-link {
+  color: #79c0ff;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #d2a8ff;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-class .hljs-title {
+  color: #79c0ff;
+}
+.hljs-built_in,
+.hljs-literal {
+  color: #ffa657;
+}
+.hljs-deletion {
+  color: #ffa198;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* ---------- Scrollbar ---------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
