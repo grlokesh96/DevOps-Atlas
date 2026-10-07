@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DevOps-Atlas — Learn. Build. Troubleshoot. Master.</title>
+<meta name="description" content="DevOps-Atlas: articles, labs, troubleshooting library, command atlas and interview prep for cloud-native engineers.">
+<meta name="theme-color" content="#0b0f17">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+<link rel="stylesheet" href="assets/js/lib/highlight-github-dark.min.css">
+<link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+<a class="skip-link" href="#view">Skip to content</a>
+
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/" aria-label="DevOps-Atlas home">
+      <span class="brand-mark">DA</span>
+      <span class="brand-text">DevOps<em>-Atlas</em></span>
+    </a>
+
+    <nav class="mainnav" id="mainnav" aria-label="Primary">
+      <a href="#/" data-nav="home">Home</a>
+      <a href="#/content" data-nav="content">Content</a>
+      <a href="#/troubleshooting" data-nav="troubleshooting">Troubleshooting</a>
+      <a href="#/commands" data-nav="commands">Commands</a>
+      <a href="#/labs" data-nav="labs">Labs</a>
+      <a href="#/interview" data-nav="interview">Interview</a>
+      <a href="#/admin" data-nav="admin" class="nav-admin">Admin</a>
+    </nav>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" id="search-toggle" aria-label="Open search" title="Search (/)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <a class="icon-btn" href="#/admin" aria-label="Admin dashboard" title="Admin">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </a>
+      <button class="burger" id="nav-burger" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="searchbar" id="searchbar" hidden>
+    <div class="searchbar-inner">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="global-search" placeholder="Search articles, troubleshooting, commands, labs…" autocomplete="off" aria-label="Search">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="search-results" id="search-results" role="listbox"></div>
+  </div>
+</header>
+
+<main id="view" class="view" tabindex="-1"></main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div>
+      <div class="brand small"><span class="brand-mark">DA</span> <span class="brand-text">DevOps<em>-Atlas</em></span></div>
+      <p class="muted">Learn. Build. Troubleshoot. Master.</p>
+    </div>
+    <div class="footer-links">
+      <a href="#/content">Content</a>
+      <a href="#/troubleshooting">Troubleshooting</a>
+      <a href="#/commands">Command Atlas</a>
+      <a href="#/labs">Labs</a>
+      <a href="#/interview">Interview Prep</a>
+      <a href="#/admin">Admin</a>
+    </div>
+  </div>
+  <div class="footer-bottom muted">© <span id="year"></span> DevOps-Atlas · Static, lightweight, no tracking.</div>
+</footer>
+
+<button class="to-top" id="to-top" aria-label="Back to top" hidden>↑</button>
+
+<div class="toast-wrap" id="toasts" aria-live="polite"></div>
+
+<script src="assets/js/lib/marked.min.js"></script>
+<script src="assets/js/lib/highlight.min.js"></script>
+<script src="assets/js/core.js"></script>
+<script src="assets/js/data/articles.js"></script>
+<script src="assets/js/data/troubleshooting.js"></script>
+<script src="assets/js/data/commands.js"></script>
+<script src="assets/js/data/labs.js"></script>
+<script src="assets/js/data/interview.js"></script>
+<script src="assets/js/store.js"></script>
+<script src="assets/js/views.js"></script>
+<script src="assets/js/admin.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
