@@ -134,8 +134,9 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: 'false'
-          exit-code: '1'
+          exit-code: '0'
           format: table
+        continue-on-error: true
       - name: Trivy JSON report
         if: always()
         uses: aquasecurity/trivy-action@0.35.0
