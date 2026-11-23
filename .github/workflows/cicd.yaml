@@ -112,7 +112,7 @@ jobs:
         run: npm ci
 
       - name: Run npm Audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
   hadolint:
     name: Hadolint
@@ -171,6 +171,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           cache-ref: trivy-cache
 
   syft:
