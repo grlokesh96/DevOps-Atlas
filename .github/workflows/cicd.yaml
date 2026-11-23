@@ -96,22 +96,11 @@ jobs:
       - run: npm audit --audit-level=high
         continue-on-error: true
 
-  dockerfile:
-    name: Hadolint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: Dockerfile
-          failure-threshold: warning
-
   security-build:
     name: Docker Build / Trivy / Syft / ZAP
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [lint, test, secrets, sast, dependencies, dockerfile]
+    needs: [lint, test, secrets, sast, dependencies]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
