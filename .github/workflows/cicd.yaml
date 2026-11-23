@@ -142,10 +142,22 @@ jobs:
             candidate.tar.sha256
           compression-level: 0
           retention-days: 1
+
+  trivy-scan:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: docker-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: validated-image
+      - name: Load image
+        run: docker load -i candidate.tar
       - name: Trivy vulnerability gate
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: devops-atlas:candidate
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: 'false'
@@ -156,7 +168,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: devops-atlas:candidate
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: '0'
@@ -169,10 +181,22 @@ jobs:
           name: trivy-report
           path: trivy.json
           if-no-files-found: ignore
+
+  syft-zap:
+    name: Syft SBOM + ZAP DAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: docker-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: validated-image
+      - name: Load image
+        run: docker load -i candidate.tar
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
       - name: Generate SBOM
-        run: syft "$CANDIDATE_IMAGE" -o cyclonedx-json=sbom.cdx.json
+        run: syft "${{ env.CANDIDATE_IMAGE }}" -o cyclonedx-json=sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
           name: sbom-report
@@ -180,8 +204,8 @@ jobs:
       - name: Start DAST target
         run: |
           docker run -d --name atlas-dast \
-            -p "127.0.0.1:${TEST_PORT}:${APP_PORT}" \
-            "$CANDIDATE_IMAGE"
+            -p "127.0.0.1:${{ env.TEST_PORT }}:${{ env.APP_PORT }}" \
+            "${{ env.CANDIDATE_IMAGE }}"
       - name: Wait for HTTP readiness
         run: |
           set -euo pipefail
@@ -191,7 +215,7 @@ jobs:
               echo '::error::DAST container exited before becoming ready.'
               exit 1
             fi
-            if curl -fsS --max-time 3 "http://127.0.0.1:${TEST_PORT}/" >/dev/null; then
+            if curl -fsS --max-time 3 "http://127.0.0.1:${{ env.TEST_PORT }}/" >/dev/null; then
               exit 0
             fi
             sleep 3
@@ -206,7 +230,7 @@ jobs:
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/zap-reports:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "http://127.0.0.1:${TEST_PORT}/" \
+            zap-baseline.py -t "http://127.0.0.1:${{ env.TEST_PORT }}/" \
             -m 2 -I -r zap.html -J zap.json
       - name: Upload ZAP reports
         if: always()
@@ -218,24 +242,12 @@ jobs:
       - name: Clean up DAST container
         if: always()
         run: docker rm -f atlas-dast || true
-      - name: Save scanned image
-        run: |
-          docker save "$CANDIDATE_IMAGE" -o candidate.tar
-          sha256sum candidate.tar > candidate.tar.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: validated-image
-          path: |
-            candidate.tar
-            candidate.tar.sha256
-          compression-level: 0
-          retention-days: 1
 
   publish:
     name: Docker Hub Push
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [security-build]
+    needs: [docker-build, trivy-scan, syft-zap]
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     environment: dockerhub-production
     permissions:
@@ -288,7 +300,7 @@ jobs:
     name: Slack CI/CD Notification
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [lint, test, secrets, sast, dependencies, security-build, publish]
+    needs: [lint, test, secrets, sast, dependencies, docker-build, trivy-scan, syft-zap, publish]
     if: always()
     permissions:
       contents: read
