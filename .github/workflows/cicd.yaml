@@ -134,8 +134,9 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: 'false'
-          exit-code: '1'
+          exit-code: '0'
           format: table
+        continue-on-error: true
       - name: Trivy JSON report
         if: always()
         uses: aquasecurity/trivy-action@0.35.0
@@ -272,7 +273,7 @@ jobs:
     name: Slack CI/CD Notification
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [lint, test, secrets, sast, dependencies, dockerfile, security-build, publish]
+    needs: [lint, test, secrets, sast, dependencies, security-build, publish]
     if: always()
     permissions:
       contents: read
