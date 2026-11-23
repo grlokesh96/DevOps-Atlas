@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, Clock, PenLine, Signal } from "luc
 import ContentCard from "@/components/ContentCard";
 import DownloadMenu from "@/components/DownloadMenu";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import ReadingProgress from "@/components/ReadingProgress";
 import ShareButton from "@/components/ShareButton";
 import TableOfContents from "@/components/TableOfContents";
 import Tag from "@/components/Tag";
@@ -19,6 +20,7 @@ import {
   resolveType,
   slugify,
 } from "@/lib/content";
+import { SITE_URL } from "@/lib/site";
 
 export const revalidate = 15;
 
@@ -76,6 +78,31 @@ export default async function ContentDetailPage({
   const related = getRelated(item, 3);
   const meta = TYPE_META[item.type];
 
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: item.title,
+    description: item.description,
+    datePublished: item.date,
+    dateModified: item.date,
+    author: { "@type": "Person", name: item.author },
+    publisher: { "@type": "Organization", name: "DevOps-Atlas" },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}${item.route}` },
+    url: `${SITE_URL}${item.route}`,
+    keywords: item.tags.join(", "),
+    articleSection: item.category,
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: meta.label, item: `${SITE_URL}/${route}` },
+      { "@type": "ListItem", position: 3, name: item.title, item: `${SITE_URL}${item.route}` },
+    ],
+  };
+
   const siblings = getContentByType(item.type);
   const index = siblings.findIndex((i) => i.slug === item.slug);
   const previous = index >= 0 && index < siblings.length - 1 ? siblings[index + 1] : null;
@@ -99,6 +126,15 @@ export default async function ContentDetailPage({
 
   return (
     <article className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <ReadingProgress />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
       <nav aria-label="Breadcrumb" className="text-xs text-slate-500">
         <ol className="flex flex-wrap items-center gap-1.5">
           <li>
