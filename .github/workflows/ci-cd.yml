@@ -113,6 +113,8 @@ jobs:
           ignore-unfixed: "true"
           severity: CRITICAL,HIGH
           scanners: vuln
+        env:
+          TRA_TRIVY_SKIP_VERSION_CHECK: "true"
 
       - name: Trivy SARIF report
         if: always()
