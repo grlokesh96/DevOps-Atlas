@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Download, FileCode2, FileText, Printer } from "lucide-react";
+import { ChevronDown, Download, FileCode2, FileText, Printer } from "lucide-react";
 import type { ContentMeta } from "@/lib/types";
 
 function saveBlob(filename: string, mime: string, content: string) {

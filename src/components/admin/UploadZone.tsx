@@ -11,7 +11,6 @@ import {
   UploadCloud,
 } from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import TypeBadge from "@/components/TypeBadge";
 import { renderMarkdown } from "@/lib/render";
 import { formatDate } from "@/lib/meta";
 import type { UploadMeta } from "@/lib/types";
@@ -34,6 +33,13 @@ interface ParsedMarkdown {
   sourceName: string;
   hasFrontmatter: boolean;
   suggestedSlug: string;
+}
+
+interface UploadResponse {
+  kind?: "markdown" | "txt" | "pdf";
+  parsed?: ParsedMarkdown;
+  meta?: UploadMeta;
+  error?: string;
 }
 
 type State =
@@ -83,15 +89,20 @@ export default function UploadZone() {
       }
     };
     xhr.onload = () => {
-      let data: any = {};
+      let data: UploadResponse = {};
       try {
-        data = JSON.parse(xhr.responseText);
+        data = JSON.parse(xhr.responseText) as UploadResponse;
       } catch {
         /* noop */
       }
       if (xhr.status >= 200 && xhr.status < 300) {
-        if (data.kind === "markdown") setState({ phase: "markdown", parsed: data.parsed });
-        else setState({ phase: "stored", meta: data.meta, kind: data.meta.kind });
+        if (data.kind === "markdown" && data.parsed) {
+          setState({ phase: "markdown", parsed: data.parsed });
+        } else if (data.meta) {
+          setState({ phase: "stored", meta: data.meta, kind: data.meta.kind });
+        } else {
+          setState({ phase: "error", message: "Unexpected response from server." });
+        }
       } else {
         setState({ phase: "error", message: data.error ?? `Upload failed (${xhr.status})` });
       }
