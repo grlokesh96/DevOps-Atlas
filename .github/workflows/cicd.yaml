@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI/CD - DevOps Atlas
 
 on:
   push:
@@ -23,10 +23,7 @@ env:
   TEST_PORT: '8080'
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Stage 1: fast checks (run in parallel)
-  # ---------------------------------------------------------------------------
-  eslint:
+  lint:
     name: ESLint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -39,7 +36,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
-  unit-tests:
+  test:
     name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -52,7 +49,7 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  gitleaks:
+  secrets:
     name: Gitleaks
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -61,236 +58,252 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Scan repository history
+      - name: Scan Git history
         run: |
-          docker run --rm \
-            -e GIT_CONFIG_COUNT=1 \
-            -e GIT_CONFIG_KEY_0=safe.directory \
-            -e GIT_CONFIG_VALUE_0=/repo \
-            -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo \
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo \
             ghcr.io/gitleaks/gitleaks:v8.24.3 git --redact --exit-code 1 .
 
-  semgrep:
+  sast:
     name: Semgrep
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Run Semgrep Community Edition
+      - name: Scan source
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src \
-            semgrep/semgrep:1.145.0 semgrep scan --config p/javascript --config p/typescript \
-            --error --metrics off .
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            semgrep/semgrep:1.102.0 semgrep scan --config p/javascript \
+            --config p/typescript --error --metrics off --json \
+            --output semgrep.json .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep.json
+          if-no-files-found: ignore
 
-  # ---------------------------------------------------------------------------
-  # Stage 2: build the candidate image once, reuse it everywhere
-  # ---------------------------------------------------------------------------
-  docker-build:
-    name: Docker Build
-    needs: [eslint, unit-tests, gitleaks, semgrep]
+  dependencies:
+    name: npm Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  dockerfile:
+    name: Hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+  security-build:
+    name: Docker Build / Trivy / Syft / ZAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [lint, test, secrets, sast, dependencies, dockerfile]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build candidate image
+      - name: Build local candidate
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
+          file: Dockerfile
           load: true
           push: false
+          platforms: linux/amd64
           tags: ${{ env.CANDIDATE_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Export candidate image
+      - name: Validate non-root user exists in final image
         run: |
-          docker save "$CANDIDATE_IMAGE" -o "$RUNNER_TEMP/image.tar"
-          (cd "$RUNNER_TEMP" && sha256sum image.tar > image.tar.sha256)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: candidate-image
-          path: |
-            ${{ runner.temp }}/image.tar
-            ${{ runner.temp }}/image.tar.sha256
-          retention-days: 1
-          compression-level: 0
-
-  # ---------------------------------------------------------------------------
-  # Stage 3: image security checks (run in parallel against the same image)
-  # ---------------------------------------------------------------------------
-  trivy:
-    name: Trivy
-    needs: docker-build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      # Fall back to the ECR mirror if ghcr.io rate-limits the vulnerability DB download
-      TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: candidate-image
-          path: candidate
-      - name: Verify and load image
-        run: |
-          (cd candidate && sha256sum -c image.tar.sha256)
-          docker load -i candidate/image.tar
-
-      # Report first (never fails) so the SARIF is always produced
-      - name: Generate SARIF report
+          set -euo pipefail
+          configured_user=$(docker image inspect "$CANDIDATE_IMAGE" --format '{{.Config.User}}')
+          echo "Configured container user: ${configured_user:-default}"
+          if [[ "$configured_user" == 'nextjs' ]]; then
+            docker run --rm --user 0 --entrypoint /bin/sh "$CANDIDATE_IMAGE" \
+              -c 'grep -q "^nextjs:" /etc/passwd' || {
+                echo '::error::Dockerfile declares USER nextjs but the final image lacks that user.'
+                exit 1
+              }
+          fi
+      - name: Trivy vulnerability gate
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          version: v0.69.3
-          image-ref: ${{ env.CANDIDATE_IMAGE }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '0'
-          format: sarif
-          output: trivy-results.sarif
-
-      - name: Upload SARIF artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-report
-          path: trivy-results.sarif
-          if-no-files-found: warn
-
-      # Gate: fail the pipeline on HIGH/CRITICAL findings
-      # Set ignore-unfixed to 'true' if you only want to block on vulnerabilities that have a fix.
-      - name: Fail on high/critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          version: v0.69.3
-          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          image-ref: devops-atlas:candidate
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: 'false'
           exit-code: '1'
           format: table
-
-  syft:
-    name: Syft SBOM
-    needs: docker-build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/download-artifact@v4
+      - name: Trivy JSON report
+        if: always()
+        uses: aquasecurity/trivy-action@0.35.0
         with:
-          name: candidate-image
-          path: candidate
-      - name: Verify and load image
-        run: |
-          (cd candidate && sha256sum -c image.tar.sha256)
-          docker load -i candidate/image.tar
-      - uses: anchore/sbom-action/download-syft@v0
-      - name: Generate CycloneDX SBOM
+          image-ref: devops-atlas:candidate
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+          format: json
+          output: trivy.json
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy.json
+          if-no-files-found: ignore
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+      - name: Generate SBOM
         run: syft "$CANDIDATE_IMAGE" -o cyclonedx-json=sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
           name: sbom-report
           path: sbom.cdx.json
-          retention-days: 30
-
-  owasp-zap:
-    name: OWASP ZAP
-    needs: docker-build
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: candidate-image
-          path: candidate
-      - name: Load candidate image
-        run: |
-          (cd candidate && sha256sum -c image.tar.sha256)
-          docker load -i candidate/image.tar
-      - name: Start isolated application
+      - name: Start DAST target
         run: |
           docker run -d --name atlas-dast \
-            -p "127.0.0.1:${TEST_PORT}:${APP_PORT}" "$CANDIDATE_IMAGE"
-      - name: Wait for application readiness
+            -p "127.0.0.1:${TEST_PORT}:${APP_PORT}" \
+            "$CANDIDATE_IMAGE"
+      - name: Wait for HTTP readiness
         run: |
-          for i in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${TEST_PORT}/" >/dev/null; then exit 0; fi
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            if ! docker inspect -f '{{.State.Running}}' atlas-dast | grep -q true; then
+              docker logs --tail 80 atlas-dast || true
+              echo '::error::DAST container exited before becoming ready.'
+              exit 1
+            fi
+            if curl -fsS --max-time 3 "http://127.0.0.1:${TEST_PORT}/" >/dev/null; then
+              exit 0
+            fi
             sleep 3
           done
-          docker logs --tail 100 atlas-dast
+          docker logs --tail 80 atlas-dast || true
+          echo '::error::Application did not become ready on the configured port/path.'
           exit 1
-      - name: OWASP ZAP passive baseline scan
+      - name: OWASP ZAP baseline scan
         run: |
           mkdir -p zap-reports
           chmod 777 zap-reports
           docker run --rm --network host \
             -v "$GITHUB_WORKSPACE/zap-reports:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "http://127.0.0.1:${TEST_PORT}" \
-              -m 2 -I -r zap.html -J zap.json
-      - name: Upload ZAP report
+            zap-baseline.py -t "http://127.0.0.1:${TEST_PORT}/" \
+            -m 2 -I -r zap.html -J zap.json
+      - name: Upload ZAP reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: zap-reports/
-          if-no-files-found: warn
-      - name: Clean up test container
+          if-no-files-found: ignore
+      - name: Clean up DAST container
         if: always()
         run: docker rm -f atlas-dast || true
+      - name: Save scanned image
+        run: |
+          docker save "$CANDIDATE_IMAGE" -o candidate.tar
+          sha256sum candidate.tar > candidate.tar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validated-image
+          path: |
+            candidate.tar
+            candidate.tar.sha256
+          compression-level: 0
+          retention-days: 1
 
-  # ---------------------------------------------------------------------------
-  # Stage 4: publish the exact image that passed every check (no rebuild)
-  # ---------------------------------------------------------------------------
-  docker-hub-push:
+  publish:
     name: Docker Hub Push
-    needs: [trivy, syft, owasp-zap]
-    if: >-
-      github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [security-build]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     environment: dockerhub-production
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
     steps:
-      - name: Validate credentials
-        run: |
-          test -n "$DOCKERHUB_USERNAME" || { echo '::error::Missing Docker Hub username'; exit 1; }
-          test -n "$DOCKERHUB_TOKEN" || { echo '::error::Missing Docker Hub token'; exit 1; }
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: candidate-image
-          path: candidate
-      - name: Verify and load validated image
+          name: validated-image
+      - name: Verify and load scanned image
         run: |
-          (cd candidate && sha256sum -c image.tar.sha256)
-          docker load -i candidate/image.tar
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ env.DOCKERHUB_TOKEN }}
-      - name: Generate Docker tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
-      - name: Publish scanned image without rebuilding
+          sha256sum -c candidate.tar.sha256
+          docker load -i candidate.tar
+      - name: Validate Docker Hub credentials
         env:
-          TAGS: ${{ steps.meta.outputs.tags }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo '::error::Missing DOCKERHUB_USERNAME'; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo '::error::Missing DOCKERHUB_TOKEN'; exit 1; }
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push exactly scanned image
+        id: push
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           set -euo pipefail
-          while IFS= read -r tag; do
-            [[ -z "$tag" ]] && continue
-            docker tag "$CANDIDATE_IMAGE" "$tag"
-            docker push "$tag"
-          done <<< "$TAGS"
+          image="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          tag="sha-${GITHUB_SHA::12}"
+          docker tag "$CANDIDATE_IMAGE" "$image:$tag"
+          docker push "$image:$tag"
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            docker tag "$CANDIDATE_IMAGE" "$image:latest"
+            docker push "$image:latest"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+            docker tag "$CANDIDATE_IMAGE" "$image:$version"
+            docker push "$image:$version"
+          fi
+          digest=$(docker image inspect "$image:$tag" --format '{{index .RepoDigests 0}}' || true)
+          echo "image=$image:$tag" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+  notify:
+    name: Slack CI/CD Notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint, test, secrets, sast, dependencies, dockerfile, security-build, publish]
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted notification script
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Send Slack summary
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          PUBLISHED_IMAGE: ${{ needs.publish.outputs.image }}
+          PUBLISHED_DIGEST: ${{ needs.publish.outputs.digest }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SERVER_URL: ${{ github.server_url }}
+        run: python3 .github/scripts/slack_notify.py
