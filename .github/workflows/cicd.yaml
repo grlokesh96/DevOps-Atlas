@@ -273,7 +273,7 @@ jobs:
     name: Slack CI/CD Notification
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [lint, test, secrets, sast, dependencies, dockerfile, security-build, publish]
+    needs: [lint, test, secrets, sast, dependencies, security-build, publish]
     if: always()
     permissions:
       contents: read
