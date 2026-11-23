@@ -21,11 +21,13 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1. Lint
+  # 1. ESLint (runs in parallel with other source checks)
   # ---------------------------------------------------------------------------
-  lint:
-    name: Lint
+  eslint:
+    name: ESLint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,11 +45,13 @@ jobs:
         run: npm run lint
 
   # ---------------------------------------------------------------------------
-  # 2. Test
+  # 2. Unit tests + coverage (runs in parallel with other source checks)
   # ---------------------------------------------------------------------------
   test:
-    name: Test
+    name: Unit tests + coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,18 +65,104 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm test
+      - name: Run unit tests with coverage
+        run: npm test -- --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
 
   # ---------------------------------------------------------------------------
-  # 3. Docker build
+  # 3. Gitleaks (runs in parallel with other source checks)
   # ---------------------------------------------------------------------------
-  docker-build:
-    name: Docker Build
+  gitleaks:
+    name: Gitleaks
     runs-on: ubuntu-latest
-    needs: [lint, test]
     permissions:
       contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Gitleaks
+        run: |
+          gitleaks protect --staged --verbose
+          gitleaks protect --full --verbose
+
+  # ---------------------------------------------------------------------------
+  # 4. Semgrep (runs in parallel with other source checks)
+  # ---------------------------------------------------------------------------
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=p/owasp-top-ten --json --output=sarif.json .
+          semgrep --config=p/owasp-top-ten --json --output=sarif.json .
+
+  # ---------------------------------------------------------------------------
+  # 5. npm audit (runs in parallel with other source checks)
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # 6. Hadolint (runs in parallel with other source checks)
+  # ---------------------------------------------------------------------------
+  hadolint:
+    name: Hadolint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Hadolint
+        run: |
+          curl -sL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+
+      - name: Run Hadolint on Dockerfile
+        run: |
+          hadolint Dockerfile
+
+  # ---------------------------------------------------------------------------
+  # 7. Docker build (runs after source checks complete)
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [eslint, test, gitleaks, semgrep, npm-audit, hadolint]
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,7 +175,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          
+          push: true
           tags: ${{ env.IMAGE_NAME }}:scan
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -93,10 +183,10 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------------
-  # 4. Trivy scan
+  # 8. Trivy (runs after Docker build completes)
   # ---------------------------------------------------------------------------
   trivy-scan:
-    name: Trivy Vulnerability Scan
+    name: Trivy
     runs-on: ubuntu-latest
     needs: [docker-build]
     permissions:
@@ -138,7 +228,70 @@ jobs:
           category: trivy
 
   # ---------------------------------------------------------------------------
-  # 5. Push to Docker Hub (main branch / version tags only)
+  # 9. Syft SBOM (runs after Trivy completes)
+  # ---------------------------------------------------------------------------
+  syft-sbom:
+    name: Syft SBOM
+    runs-on: ubuntu-latest
+    needs: [trivy-scan]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Syft
+        run: |
+          curl -sL https://github.com/anchore/syft/releases/download/v0.81.0/syft_linux_amd64 -o /usr/local/bin/syft
+          chmod +x /usr/local/bin/syft
+
+      - name: Generate SBOM
+        run: |
+          syft docker:${{ env.IMAGE_NAME }}:scan -o cyclonedx > sbom.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syft-sbom
+          path: sbom.json
+
+  # ---------------------------------------------------------------------------
+  # 10. OWASP ZAP (runs after Docker build, baseline errors block, warnings reported)
+  # ---------------------------------------------------------------------------
+  owasp-zap:
+    name: OWASP ZAP
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OWASP ZAP
+        run: |
+          sudo apt-get update && sudo apt-get install -y zaproxy
+
+      - name: Run OWASP ZAP baseline scan
+        run: |
+          zap-baseline.py -t http://localhost:3000 -r zap-report.html
+          # Fail on critical errors, report warnings
+          if [ -f zap-report.html ]; then
+            critical_errors=$(grep -c "critical" zap-report.html || true)
+            if [ "$critical_errors" -gt 0 ]; then
+              echo "::error::Critical ZAP errors found"
+              exit 1
+            fi
+          fi
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-zap-report
+          path: zap-report.html
+
+  # ---------------------------------------------------------------------------
+  # 11. Push to Docker Hub (main branch / version tags only)
   # ---------------------------------------------------------------------------
   push:
     name: Push to Docker Hub
