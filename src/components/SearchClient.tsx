@@ -16,20 +16,35 @@ const FILTERS: { label: string; value: ContentType | "all" }[] = [
   { label: "Posts", value: "post" },
   { label: "Labs", value: "lab" },
   { label: "Troubleshooting", value: "troubleshooting" },
+  { label: "Command Atlas", value: "command" },
+  { label: "Interview Prep", value: "interview" },
 ];
 
-function matches(entry: SearchEntry, terms: string[]): boolean {
-  if (terms.length === 0) return true;
-  const haystack = [
-    entry.title,
-    entry.description,
-    entry.category,
-    entry.tags.join(" "),
-    entry.text,
-  ]
-    .join(" ")
-    .toLowerCase();
-  return terms.every((term) => haystack.includes(term));
+function relevance(entry: SearchEntry, terms: string[]): number {
+  if (terms.length === 0) return 0;
+  const title = entry.title.toLowerCase();
+  const description = entry.description.toLowerCase();
+  const category = entry.category.toLowerCase();
+  const tags = entry.tags.join(" ").toLowerCase();
+  const text = entry.text.toLowerCase();
+
+  let total = 0;
+  for (const term of terms) {
+    const inTitle = title.includes(term);
+    const inTags = tags.includes(term);
+    const inCategory = category.includes(term);
+    const inDescription = description.includes(term);
+    const inText = text.includes(term);
+    if (!inTitle && !inTags && !inCategory && !inDescription && !inText) return -1;
+    if (inTitle) total += 8;
+    if (inTags) total += 3;
+    if (inCategory) total += 3;
+    if (inDescription) total += 2;
+    if (inText) total += 1;
+  }
+
+  if (title.includes(terms.join(" "))) total += 12;
+  return total;
 }
 
 export default function SearchClient({
@@ -44,9 +59,12 @@ export default function SearchClient({
 
   const results = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return entries.filter(
-      (entry) => (filter === "all" || entry.type === filter) && matches(entry, terms),
-    );
+    return entries
+      .filter((entry) => filter === "all" || entry.type === filter)
+      .map((entry) => ({ entry, score: relevance(entry, terms) }))
+      .filter(({ score }) => score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ entry }) => entry);
   }, [entries, query, filter]);
 
   const hasQuery = query.trim().length > 0;

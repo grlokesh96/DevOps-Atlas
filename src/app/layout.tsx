@@ -1,12 +1,12 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "highlight.js/styles/github-dark.css";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import MobileMenu from "@/components/MobileMenu";
 import Footer from "@/components/Footer";
 import SearchShortcut from "@/components/SearchShortcut";
-
-const SITE_URL = process.env.SITE_URL || "https://devops-atlas.vercel.app";
+import ScrollToTop from "@/components/ScrollToTop";
+import { SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -46,6 +46,25 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#070b14",
+  colorScheme: "dark",
+};
+
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "DevOps-Atlas",
+  url: SITE_URL,
+  description:
+    "A practical knowledge base for DevOps, Cloud & Platform Engineering — articles, blogs, notes, labs, troubleshooting, commands and interview prep.",
+  potentialAction: {
+    "@type": "SearchAction",
+    target: `${SITE_URL}/search?q={search_term_string}`,
+    "query-input": "required name=search_term_string",
+  },
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -67,7 +86,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Footer />
         </div>
 
+        <ScrollToTop />
         <SearchShortcut />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
       </body>
     </html>
   );
