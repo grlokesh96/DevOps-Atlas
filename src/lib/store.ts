@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { CONTENT_DIR, TYPE_META } from "./content";
-import { slugify } from "./meta";
 import type { ContentFormInput, ContentType, UploadMeta } from "./types";
 
 export const UPLOAD_DIR = path.join(CONTENT_DIR, "uploads");
@@ -39,7 +38,10 @@ export function saveContent(input: ContentFormInput & { slug: string }): string 
   return filePath;
 }
 
-export function readRawContent(type: ContentType, slug: string): { data: any; content: string } {
+export function readRawContent(
+  type: ContentType,
+  slug: string,
+): { data: Record<string, unknown>; content: string } {
   const filePath = contentFilePath(type, slug);
   if (!fs.existsSync(filePath)) throw new Error("Content not found");
   return matter(fs.readFileSync(filePath, "utf8"));

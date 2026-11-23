@@ -1,4 +1,5 @@
 import { Marked } from "marked";
+import type { Tokens } from "marked";
 import hljs from "highlight.js";
 import { slugify } from "./meta";
 import type { Heading } from "./types";
@@ -17,13 +18,13 @@ export function renderMarkdown(markdown: string): { html: string; headings: Head
     gfm: true,
     breaks: false,
     renderer: {
-      heading(token: any) {
+      heading(token: Tokens.Heading) {
         const id = slugify(token.text);
         headings.push({ id, text: token.text, level: token.depth });
         const inner = this.parser.parseInline(token.tokens);
         return `<h${token.depth} id="${id}">${inner}</h${token.depth}>\n`;
       },
-      code({ text, lang }: any) {
+      code({ text, lang }: Tokens.Code) {
         const language = /^[a-zA-Z0-9_+-]*/.exec(lang || "")?.[0] ?? "";
         let highlighted = escapeHtml(text);
         try {
