@@ -48,6 +48,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: [lint]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,15 +66,14 @@ jobs:
         run: npm test
 
   # ---------------------------------------------------------------------------
-  # 3. Docker build + 4. Trivy scan
+  # 3. Docker build
   # ---------------------------------------------------------------------------
-  docker:
-    name: Docker Build & Trivy Scan
+  docker-build:
+    name: Docker Build
     runs-on: ubuntu-latest
     needs: [lint, test]
     permissions:
       contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,10 +87,23 @@ jobs:
           context: .
           file: ./Dockerfile
           load: true
-          push: false
           tags: ${{ env.IMAGE_NAME }}:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # 4. Trivy scan
+  # ---------------------------------------------------------------------------
+  trivy-scan:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -127,7 +140,7 @@ jobs:
   push:
     name: Push to Docker Hub
     runs-on: ubuntu-latest
-    needs: [docker]
+    needs: [trivy-scan]
     if: >-
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
@@ -147,7 +160,7 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN are not configured; skipping Docker Hub push."
           else
-            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GOUTPUT"
           fi
 
       - name: Set up Docker Buildx
