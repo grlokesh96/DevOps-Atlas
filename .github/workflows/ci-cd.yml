@@ -93,24 +93,22 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:scan
           format: table
           exit-code: "1"
-          ignore-unresolved: "true"
           ignore-unfixed: "true"
           severity: CRITICAL,HIGH
           scanners: vuln
 
       - name: Trivy SARIF report
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:scan
           format: sarif
           output: trivy-results.sarif
-          ignore-unresolved: "true"
           ignore-unfixed: "true"
           severity: CRITICAL,HIGH
           scanners: vuln
