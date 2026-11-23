@@ -3,210 +3,290 @@ name: CI/CD
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
-  packages: write
-  security-events: write
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: '22'
   IMAGE_NAME: devops-atlas
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  APP_PORT: '3000'
+  TEST_PORT: '8080'
 
 jobs:
   eslint:
     name: ESLint
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
+      - run: npm ci
+      - run: npm run lint
 
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Unit Tests
-        run: npm test
+      - run: npm ci
+      - run: npm test
 
   gitleaks:
     name: Gitleaks
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+          persist-credentials: false
+      - name: Scan repository history
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 git --redact --exit-code 1 .
 
   semgrep:
     name: Semgrep
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Semgrep
-        uses: semgrep/action-git@v1
-        with:
-          config: p/owasp-crs
+      - uses: actions/checkout@v4
+      - name: Run Semgrep Community Edition
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src \
+            semgrep/semgrep:1.145.0 semgrep scan --config p/javascript --config p/typescript \
+            --error --metrics off .
 
   npm-audit:
     name: npm Audit
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm Audit
-        run: npm audit --audit-level=high
+      - run: npm ci
+      - run: npm audit --audit-level=high
 
   hadolint:
     name: Hadolint
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run Hadolint
-        uses: hadolint/hadolint-action@v3
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
+          failure-threshold: warning
 
   docker-build:
     name: Docker Build
+    needs: [eslint, unit-tests, gitleaks, semgrep, npm-audit, hadolint]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build candidate image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: devops-atlas:candidate
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Export candidate image
+        run: |
+          docker save devops-atlas:candidate -o "$RUNNER_TEMP/image.tar"
+          (cd "$RUNNER_TEMP" && sha256sum image.tar > image.tar.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-image
+          path: |
+            ${{ runner.temp }}/image.tar
+            ${{ runner.temp }}/image.tar.sha256
+          retention-days: 1
+          compression-level: 0
 
   trivy:
     name: Trivy
+    needs: docker-build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        trivy:
-          ignore-unfixed: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-image
+          path: candidate
+      - name: Verify and load image
+        run: |
+          (cd candidate && sha256sum -c image.tar.sha256)
+          docker load -i candidate/image.tar
+      - name: Scan image for high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: devops-atlas:candidate
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '1'
+          format: table
+      - name: Generate SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: devops-atlas:candidate
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '0'
           format: sarif
           output: trivy-results.sarif
-          cache-ref: trivy-cache
-          severity: HIGH,CRITICAL
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-results.sarif
+          if-no-files-found: warn
 
   syft:
     name: Syft SBOM
+    needs: trivy
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Syft
-        uses: anchore/syft-action@v2
+      - uses: actions/download-artifact@v4
         with:
-          path: .
+          name: candidate-image
+          path: candidate
+      - run: |
+          (cd candidate && sha256sum -c image.tar.sha256)
+          docker load -i candidate/image.tar
+      - uses: anchore/sbom-action/download-syft@v0
+      - name: Generate CycloneDX SBOM
+        run: syft devops-atlas:candidate -o cyclonedx-json=sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-report
+          path: sbom.cdx.json
+          retention-days: 30
 
   owasp-zap:
     name: OWASP ZAP
+    needs: syft
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run OWASP ZAP scan
-        uses: zaproxy/action-baseline@v0.15.0
+      - uses: actions/download-artifact@v4
         with:
-          token: ${{ secrets.ZAP_API_TOKEN }}
+          name: candidate-image
+          path: candidate
+      - name: Load candidate image
+        run: |
+          (cd candidate && sha256sum -c image.tar.sha256)
+          docker load -i candidate/image.tar
+      - name: Start isolated application
+        run: |
+          docker run -d --name atlas-dast \
+            -p "127.0.0.1:${TEST_PORT}:${APP_PORT}" devops-atlas:candidate
+      - name: Wait for application readiness
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${TEST_PORT}/" >/dev/null; then exit 0; fi
+            sleep 3
+          done
+          docker logs --tail 100 atlas-dast
+          exit 1
+      - name: OWASP ZAP passive baseline scan
+        run: |
+          mkdir -p zap-reports
+          chmod 777 zap-reports
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/zap-reports:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "http://127.0.0.1:${TEST_PORT}" \
+              -m 2 -I -r zap.html -J zap.json
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-reports/
+          if-no-files-found: warn
+      - name: Clean up test container
+        if: always()
+        run: docker rm -f atlas-dast || true
 
   docker-hub-push:
     name: Docker Hub Push
+    needs: owasp-zap
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
-    needs: docker-build
-    permissions:
-      contents: read
+    timeout-minutes: 20
+    environment: dockerhub-production
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - name: Echo
-        run: echo "Docker image already pushed in docker-build job"
+      - name: Validate credentials
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo '::error::Missing Docker Hub username'; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo '::error::Missing Docker Hub token'; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-image
+          path: candidate
+      - name: Verify and load validated image
+        run: |
+          (cd candidate && sha256sum -c image.tar.sha256)
+          docker load -i candidate/image.tar
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+      - name: Generate Docker tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Publish scanned image without rebuilding
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            docker tag devops-atlas:candidate "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
