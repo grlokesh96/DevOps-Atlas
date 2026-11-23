@@ -23,7 +23,12 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache libc6-compat \
     && addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 nextjs
+    && adduser --system --uid 1001 nextjs \
+    && rm -rf /usr/local/lib/node_modules/npm \
+              /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm \
+              /usr/local/bin/npx \
+              /usr/local/bin/corepack
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
